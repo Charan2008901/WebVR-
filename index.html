@@ -54,7 +54,7 @@
   <div class="side-note">Drag to rotate · Select a planet to travel</div>
   <div class="center-reticle"></div>
   <section class="readout"><div class="readout-index" id="readoutIndex">00 / THE NEIGHBOURHOOD</div><h2 id="readoutTitle">A living<br>system.</h2><p id="readoutText">Our star holds eight planets in its gravitational embrace. Choose a world below, or move your device to look around.</p><div class="distance" id="readoutDistance">SUN-CENTRED · HELIOCENTRIC VIEW</div><div class="view-actions"><button class="view-button active" id="followView">Follow</button><button class="view-button" id="surfaceView">Surface view</button><button class="view-button" id="overviewView">Overview</button></div></section>
-  <div class="bottom-bar"><nav class="planet-nav" id="planetNav" aria-label="Choose a planet"></nav><div class="bottom-right"><b>EPHEMERIS POSITIONS</b>PLANET SIZES NOT TO SCALE</div></div>
+  <div class="bottom-bar"><nav class="planet-nav" id="planetNav" aria-label="Choose a planet"></nav><div class="bottom-right"><b>EPHEMERIS POSITIONS</b>DISTANCE SCALE COMPRESSED</div></div>
 </div>
 <div id="transition"></div><div id="focus-flash"></div><div id="vignette"></div><div id="grain"></div>
 <script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
@@ -67,7 +67,7 @@ const scene=new THREE.Scene();scene.background=new THREE.Color('#0B0F0D');scene.
 const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,1800);
 const portraitScale=isMobile?.58:1;
 const system=new THREE.Group();system.scale.setScalar(portraitScale);scene.add(system);
-if(isMobile){camera.position.set(0,42,0.08);camera.up.set(0,0,-1)}else{camera.position.set(0,24,38)}camera.lookAt(0,0,0);
+if(isMobile){camera.position.set(0,38,0.08);camera.up.set(0,0,-1)}else{camera.position.set(0,30,45)}camera.lookAt(0,0,0);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.18;document.body.appendChild(renderer.domElement);
 scene.add(new THREE.AmbientLight(0x7f8298,.24));const sunlight=new THREE.PointLight(0xb08d57,150,170,1.35);system.add(sunlight);
 
@@ -81,7 +81,7 @@ const sunRadius=.56;const sun=new THREE.Mesh(new THREE.SphereGeometry(sunRadius,
 const corona=new THREE.Mesh(new THREE.SphereGeometry(.88,48,32),new THREE.MeshBasicMaterial({color:0x8ca98c,transparent:true,opacity:.10,side:THREE.BackSide,blending:THREE.AdditiveBlending,depthWrite:false}));system.add(corona);
 const corona2=new THREE.Mesh(new THREE.SphereGeometry(1.15,48,32),new THREE.MeshBasicMaterial({color:0x3e5a3f,transparent:true,opacity:.055,side:THREE.BackSide,blending:THREE.AdditiveBlending,depthWrite:false}));system.add(corona2);
 
-const AU_TO_SCENE=.36; // 1 astronomical unit maps to 0.36 scene units; all planet-to-Sun distances retain the same ratio.
+const LOG_DISTANCE_SCALE=2.1; // Logarithmic display mapping preserves orbital direction while fitting all eight planets on screen.
 const planets=[
  {name:'Mercury',color:0x8ca98c,radius:.105,orbit:.3871,period:87.97,tilt:.03,desc:'A small, cratered world racing closest to the Sun. Its surface swings between extreme heat and cold.',distance:'— AU',type:'TERRESTRIAL / ROCKY'},
  {name:'Venus',color:0xd9c7a3,radius:.165,orbit:.7233,period:224.7,tilt:.02,desc:'A world wrapped in thick clouds. Its runaway greenhouse atmosphere makes it hotter than Mercury.',distance:'— AU',type:'TERRESTRIAL / ROCKY'},
@@ -95,8 +95,8 @@ const planets=[
 const objects=[],orbitPivots=[],pickables=[];
 function makePlanetMaterial(index,color){const mat=new THREE.MeshStandardMaterial({color,roughness:.86,metalness:.02});if(index===2){mat.color.set(0x276db7);mat.roughness=.72}if(index===4||index===5)mat.roughness=.94;return mat}
 planets.forEach((d,i)=>{
- const orbitPts=[];for(let j=0;j<360;j++){const a=j/360*Math.PI*2;orbitPts.push(new THREE.Vector3(Math.cos(a)*d.orbit*AU_TO_SCENE,0,Math.sin(a)*d.orbit*AU_TO_SCENE))}
- const orbit=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(orbitPts),new THREE.LineBasicMaterial({color:i===2?0x8ca98c:0x3e5a3f,transparent:true,opacity:i===2?.42:.22}));system.add(orbit);
+ const orbitPts=[],displayOrbit=Math.log1p(d.orbit)*LOG_DISTANCE_SCALE;for(let j=0;j<360;j++){const a=j/360*Math.PI*2;orbitPts.push(new THREE.Vector3(Math.cos(a)*displayOrbit,0,Math.sin(a)*displayOrbit))}
+ const orbit=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(orbitPts),new THREE.LineBasicMaterial({color:i===2?0xd9c7a3:0x8ca98c,transparent:true,opacity:i===2?.72:.52}));system.add(orbit);
  const pivot=new THREE.Group();system.add(pivot);const group=new THREE.Group();group.position.set(0,0,0);group.rotation.set(0,0,0);pivot.add(group);
  const body=new THREE.Mesh(new THREE.SphereGeometry(d.radius,48,32),makePlanetMaterial(i,d.color));body.userData.planetIndex=i;group.add(body);body.scale.setScalar(1/portraitScale);pickables.push(body);
  // A thin atmospheric shell makes Earth and the gas/ice giants read clearly against space.
@@ -108,7 +108,7 @@ planets.forEach((d,i)=>{
 
 // Dust lane with independently moving particles, between Mars and Jupiter.
 const dustCount=1800,dustData=[],dustPositions=new Float32Array(dustCount*3),dustGeo=new THREE.BufferGeometry();for(let i=0;i<dustCount;i++){dustData.push({a:4.36+Math.random()*.48,e:Math.random()*.08,phase:Math.random()*Math.PI*2,incl:(Math.random()-.5)*.10,node:Math.random()*Math.PI*2,rate:.16*Math.pow(2.15/(4.36+Math.random()*.48),1.5)*(0.8+Math.random()*.4)})}dustGeo.setAttribute('position',new THREE.BufferAttribute(dustPositions,3));const dust=new THREE.Points(dustGeo,new THREE.PointsMaterial({color:0xd9c7a3,size:.025,transparent:true,opacity:.72}));system.add(dust);
-function updateDust(dt){for(let i=0;i<dustCount;i++){const p=dustData[i];p.phase+=dt*p.rate;const theta=p.phase,r=p.a*(1-p.e*p.e)/(1+p.e*Math.cos(theta)),x=r*Math.cos(theta),z=r*Math.sin(theta),y=Math.sin(theta)*Math.sin(p.incl)*r,cn=Math.cos(p.node),sn=Math.sin(p.node),j=i*3;dustPositions[j]=x*cn-z*sn;dustPositions[j+1]=y;dustPositions[j+2]=x*sn+z*cn}dustGeo.attributes.position.needsUpdate=true}
+function updateDust(dt){for(let i=0;i<dustCount;i++){const p=dustData[i];p.phase+=dt*p.rate;const theta=p.phase,r=p.a*(1-p.e*p.e)/(1+p.e*Math.cos(theta)),displayR=Math.log1p(r)*LOG_DISTANCE_SCALE,x=displayR*Math.cos(theta),z=displayR*Math.sin(theta),y=Math.sin(theta)*Math.sin(p.incl)*displayR,cn=Math.cos(p.node),sn=Math.sin(p.node),j=i*3;dustPositions[j]=x*cn-z*sn;dustPositions[j+1]=y;dustPositions[j+2]=x*sn+z*cn}dustGeo.attributes.position.needsUpdate=true}
 
 const ui=$('#interface'),intro=$('#intro'),nav=$('#planetNav');
 planets.forEach((d,i)=>{const b=document.createElement('button');b.className='planet-tab';b.innerHTML=`<span class="num">0${i+1}</span>${d.name}`;b.addEventListener('click',()=>focusPlanet(i));nav.appendChild(b)});
@@ -118,9 +118,12 @@ function updateTabs(){[...nav.children].forEach((b,i)=>b.classList.toggle('activ
 function updateViewButtons(){ $('#followView').classList.toggle('active',viewMode==='follow'); $('#surfaceView').classList.toggle('active',viewMode==='surface'); $('#overviewView').classList.toggle('active',viewMode==='system'); }
 function pad2(value){return String(value).padStart(2,'0')}
 function setDateInputs(date){$('#ephemerisDate').value=`${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;$('#ephemerisTime').value=`${pad2(date.getHours())}:${pad2(date.getMinutes())}`}
+function overviewDistance(){const maxMappedRadius=Math.log1p(30.1)*LOG_DISTANCE_SCALE*system.scale.x;const narrowAspect=Math.min(1,Math.max(.35,camera.aspect));return Math.max(31,maxMappedRadius*1.22/(Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*narrowAspect))}
+function overviewPosition(){const distance=overviewDistance();if(isMobile)return new THREE.Vector3(distance*Math.cos(pitch)*Math.sin(yaw),distance*Math.sin(pitch),distance*Math.cos(pitch)*Math.cos(yaw));return new THREE.Vector3(distance*Math.cos(pitch)*Math.sin(yaw),distance*Math.sin(pitch),distance*Math.cos(pitch)*Math.cos(yaw))}
 function vectorToScene(vector,cosE,sinE){
  const eclipticY=vector.y*cosE+vector.z*sinE,eclipticZ=-vector.y*sinE+vector.z*cosE;
- return new THREE.Vector3(vector.x*AU_TO_SCENE,eclipticZ*AU_TO_SCENE,-eclipticY*AU_TO_SCENE);
+ const radiusAU=Math.hypot(vector.x,vector.y,vector.z),displayRadius=Math.log1p(radiusAU)*LOG_DISTANCE_SCALE,factor=radiusAU>0?displayRadius/radiusAU:0;
+ return new THREE.Vector3(vector.x*factor,eclipticZ*factor,-eclipticY*factor);
 }
 function applyEphemeris(date){
  const Astronomy=window.Astronomy;
@@ -148,14 +151,14 @@ function applyEphemeris(date){
  const local=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(date);
  const zone=Intl.DateTimeFormat().resolvedOptions().timeZone||'LOCAL TIME';
  const utc=date.toISOString().replace('T',' ').slice(0,16)+' UTC';
- $('#timeStatus').textContent=`POSITIONS AT ${local} · ${zone} · ${utc}`;
+ $('#timeStatus').textContent=`POSITIONS AT ${local} · ${zone} · ${utc} · DISTANCES COMPRESSED FOR DISPLAY`;
  if(selected>=0)setReadout(selected);
 }
 function setPlanetView(mode){if(selected<0){if(mode==='system')goOverview();return}viewMode=mode;updateViewButtons();triggerTransition();const p=planetWorldPosition(selected),radial=p.clone().normalize();if(radial.lengthSq()<.001)radial.set(0,0,1);let destination;if(mode==='surface'){destination=p.clone().add(radial.multiplyScalar(-planets[selected].radius*1.55));destination.y+=.05}else{destination=p.clone().add(radial.multiplyScalar(isMobile?Math.max(1.1,planets[selected].radius*6.5):Math.max(1.35,planets[selected].radius*6.2))).add(new THREE.Vector3(0,isMobile?.20:.32,0))}flight={start:camera.position.clone(),end:destination,startLook:new THREE.Vector3(0,0,0),endLook:new THREE.Vector3(0,0,0),time:0,duration:1.8};}
 function triggerTransition(){const w=$('#transition'),f=$('#focus-flash');w.classList.remove('fire');f.classList.remove('fire');void w.offsetWidth;w.classList.add('fire');f.classList.add('fire')}
 function planetWorldPosition(index){const p=new THREE.Vector3();objects[index].body.getWorldPosition(p);return p}
 function focusPlanet(i){selected=i;viewMode='follow';setReadout(i);updateTabs();updateViewButtons();triggerTransition();$('#planetSearch').value='';const pos=planetWorldPosition(i);const dir=pos.clone().normalize();if(dir.lengthSq()<.001)dir.set(0,0,1);const offset=isMobile?Math.max(1.1,planets[i].radius*6.5):Math.max(1.35,planets[i].radius*6.2);const target=pos.clone().add(dir.multiplyScalar(offset)).add(new THREE.Vector3(0,isMobile?.20:.32,0));flight={start:camera.position.clone(),end:target,startLook:new THREE.Vector3(0,0,0),endLook:new THREE.Vector3(0,0,0),time:0,duration:2.2};}
-function goOverview(){selected=-1;viewMode='system';setReadout(-1);updateTabs();updateViewButtons();triggerTransition();const end=isMobile?new THREE.Vector3(0,31,0.08):new THREE.Vector3(0,18,28);flight={start:camera.position.clone(),end,startLook:new THREE.Vector3(0,0,0),endLook:new THREE.Vector3(0,0,0),time:0,duration:1.9};}
+function goOverview(){selected=-1;viewMode='system';setReadout(-1);updateTabs();updateViewButtons();triggerTransition();const end=overviewPosition();flight={start:camera.position.clone(),end,startLook:new THREE.Vector3(0,0,0),endLook:new THREE.Vector3(0,0,0),time:0,duration:1.9};}
 $('#ephemerisForm').addEventListener('submit',e=>{e.preventDefault();try{const dateValue=$('#ephemerisDate').value,timeValue=$('#ephemerisTime').value||'00:00';if(!dateValue)throw new Error('Choose a date first.');const date=new Date(`${dateValue}T${timeValue}:00`);const year=date.getFullYear();if(!Number.isFinite(date.getTime())||year<1||year>4000)throw new Error('Choose a valid date between year 0001 and 4000.');applyEphemeris(date);triggerTransition();if(selected>=0)focusPlanet(selected)}catch(error){$('#timeStatus').textContent=error.message.toUpperCase()}});
 $('#nowDate').addEventListener('click',()=>{const now=new Date();setDateInputs(now);try{applyEphemeris(now);if(selected>=0)focusPlanet(selected)}catch(error){$('#timeStatus').textContent=error.message.toUpperCase()}});
 setDateInputs(currentEphemerisDate);try{applyEphemeris(currentEphemerisDate)}catch(error){$('#timeStatus').textContent=error.message.toUpperCase()}
@@ -171,10 +174,10 @@ const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();renderer.domEl
 addEventListener('keydown',e=>{if(!active)return;if(e.key==='Escape')goOverview();if(e.key==='ArrowRight')focusPlanet((selected+1+planets.length)%planets.length);if(e.key==='ArrowLeft')focusPlanet((selected-1+planets.length)%planets.length)});
 
 let prev=performance.now();function animate(now){requestAnimationFrame(animate);const dt=Math.min((now-prev)/1000,.05);prev=now;if(!paused){updateDust(dt);sunUniforms.uTime.value+=dt;sun.rotation.y+=dt*.055;corona.rotation.y-=dt*.012;corona2.rotation.y+=dt*.008;stars.rotation.y+=dt*.000018;}
- if(active){if(flight){flight.time=Math.min(flight.duration,flight.time+dt);const u=flight.time/flight.duration,k=u*u*(3-2*u);camera.position.lerpVectors(flight.start,flight.end,k);camera.lookAt(flight.endLook);if(u>=1)flight=null}else if(selected>=0&&(viewMode==='follow'||viewMode==='surface')){const p=planetWorldPosition(selected),dir=p.clone().normalize();if(dir.lengthSq()<.001)dir.set(0,0,1);let target;if(viewMode==='surface'){target=p.clone().add(dir.multiplyScalar(-planets[selected].radius*1.55));target.y+=.05}else{const offset=isMobile?Math.max(1.1,planets[selected].radius*6.5):Math.max(1.35,planets[selected].radius*6.2);target=p.clone().add(dir.multiplyScalar(offset)).add(new THREE.Vector3(0,isMobile?.20:.32,0))}camera.position.lerp(target,Math.min(1,dt*3.8));camera.lookAt(new THREE.Vector3(0,0,0))}else{const orbitRadius=isMobile?31:33;camera.position.set(orbitRadius*Math.cos(pitch)*Math.sin(yaw),orbitRadius*Math.sin(pitch),orbitRadius*Math.cos(pitch)*Math.cos(yaw));camera.up.set(0,1,0);camera.lookAt(0,0,0)}}
+ if(active){if(flight){flight.time=Math.min(flight.duration,flight.time+dt);const u=flight.time/flight.duration,k=u*u*(3-2*u);camera.position.lerpVectors(flight.start,flight.end,k);camera.lookAt(flight.endLook);if(u>=1)flight=null}else if(selected>=0&&(viewMode==='follow'||viewMode==='surface')){const p=planetWorldPosition(selected),dir=p.clone().normalize();if(dir.lengthSq()<.001)dir.set(0,0,1);let target;if(viewMode==='surface'){target=p.clone().add(dir.multiplyScalar(-planets[selected].radius*1.55));target.y+=.05}else{const offset=isMobile?Math.max(1.1,planets[selected].radius*6.5):Math.max(1.35,planets[selected].radius*6.2);target=p.clone().add(dir.multiplyScalar(offset)).add(new THREE.Vector3(0,isMobile?.20:.32,0))}camera.position.lerp(target,Math.min(1,dt*3.8));camera.lookAt(new THREE.Vector3(0,0,0))}else{const orbitRadius=overviewDistance();camera.position.set(orbitRadius*Math.cos(pitch)*Math.sin(yaw),orbitRadius*Math.sin(pitch),orbitRadius*Math.cos(pitch)*Math.cos(yaw));camera.up.set(0,0,isMobile?-1:1);camera.lookAt(0,0,0)}}
  renderer.render(scene,camera)}requestAnimationFrame(animate);
 addEventListener('deviceorientation',e=>{if(!motion||e.alpha===null||selected>=0)return;if(orientationBase===null)orientationBase={alpha:e.alpha,beta:e.beta||0,gamma:e.gamma||0};const da=((e.alpha-orientationBase.alpha+540)%360)-180;const db=(e.beta||0)-orientationBase.beta;yaw=-da*Math.PI/180;pitch=Math.max(.35,Math.min(1.48,(isMobile?1.42:.58)-db*Math.PI/180*.55));});
-addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);const mobile=innerWidth<=700;if(mobile!==isMobile){isMobile=mobile;yaw=0;pitch=isMobile?1.42:.58;system.scale.setScalar(isMobile?.58:1);camera.up.set(0,1,0);if(selected<0){camera.position.set(0,(isMobile?31:33)*Math.sin(pitch),(isMobile?31:33)*Math.cos(pitch));camera.lookAt(0,0,0)}else focusPlanet(selected)}});
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);const mobile=innerWidth<=700;if(mobile!==isMobile){isMobile=mobile;yaw=0;pitch=isMobile?1.42:.58;system.scale.setScalar(isMobile?.58:1);camera.up.set(0,1,0);if(selected<0){camera.position.copy(overviewPosition());camera.up.set(0,0,isMobile?-1:1);camera.lookAt(0,0,0)}else focusPlanet(selected)}});
 </script>
 </body>
 </html>
