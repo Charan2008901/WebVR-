@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0B0F0D">
-<title>THE SOLAR SYSTEM — An Interactive Journey</title>
+<title>THE SOLAR SYSTEM · RAY TRACED — An Interactive Journey</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap">
 <style>
@@ -41,7 +41,7 @@
 </div>
 <div id="interface" inert>
   <div class="topbar"><div class="wordmark"><i></i> SOLAR SYSTEM / EXPLORER</div><div class="top-meta">AN ORBITAL STUDY<br><strong>01 — 08 / THE MILKY WAY</strong></div></div>
-  <div class="top-controls"><form class="search" id="searchForm"><input id="planetSearch" list="planetNames" placeholder="FIND A WORLD" autocomplete="off" aria-label="Find a planet"><datalist id="planetNames"><option>Mercury</option><option>Venus</option><option>Earth</option><option>Mars</option><option>Jupiter</option><option>Saturn</option><option>Uranus</option><option>Neptune</option></datalist><button type="submit" aria-label="Go">↗</button></form><button class="control" id="motion">Motion off</button><button class="control" id="pause">Pause</button><button class="control" id="home">Overview</button></div>
+  <div class="top-controls"><form class="search" id="searchForm"><input id="planetSearch" list="planetNames" placeholder="FIND A WORLD" autocomplete="off" aria-label="Find a planet"><datalist id="planetNames"><option>Mercury</option><option>Venus</option><option>Earth</option><option>Mars</option><option>Jupiter</option><option>Saturn</option><option>Uranus</option><option>Neptune</option></datalist><button type="submit" aria-label="Go">↗</button></form><button class="control" id="motion">Motion off</button><button class="control" id="quality">Quality</button><button class="control" id="pause">Pause</button><button class="control" id="home">Overview</button></div>
   <form class="time-dock" id="ephemerisForm" aria-label="Set the date and time for planetary positions">
     <label class="time-field"><span>Date</span><input id="ephemerisDate" type="date" min="0100-01-01" max="3000-12-31" required></label>
     <label class="time-field"><span>Local time</span><input id="ephemerisTime" type="time" required></label>
@@ -79,6 +79,20 @@ const disp=r=>3.4*Math.log(1+r*2.2),OB=23.4393*Math.PI/180;
 function pos(name,date,out){const v=Astronomy.HelioVector(name,date),r=Math.hypot(v.x,v.y,v.z);
  const ye=v.y*Math.cos(OB)+v.z*Math.sin(OB),ze=-v.y*Math.sin(OB)+v.z*Math.cos(OB),k=disp(r)/r;
  out.set(v.x*k,ze*k,-ye*k);return r}
+const atmos=[];
+const ATM={Venus:[0xe8d28a,1.14,1.5],Earth:[0x4aa3ff,1.12,2.4],Mars:[0xd98a60,1.08,.9],Jupiter:[0xd9b890,1.08,.8],Saturn:[0xe8d9a8,1.08,.8],Uranus:[0x9fe6e0,1.1,1.5],Neptune:[0x5a7dff,1.1,1.6]};
+// Atmosphere: back-face shell, glow strength follows the sun angle and turns red-orange near the terminator.
+const atmMat=(c,k)=>new THREE.ShaderMaterial({transparent:true,depthWrite:false,side:THREE.BackSide,blending:THREE.AdditiveBlending,uniforms:{uC:{value:new THREE.Color(c)},uK:{value:k}},
+vertexShader:`varying vec3 N;varying vec3 W;varying vec3 vC;void main(){N=normalize(mat3(modelMatrix)*normal);vec4 w=modelMatrix*vec4(position,1.);W=w.xyz;vC=modelMatrix[3].xyz;gl_Position=projectionMatrix*viewMatrix*w;}`,
+fragmentShader:`uniform vec3 uC;uniform float uK;varying vec3 N;varying vec3 W;varying vec3 vC;void main(){vec3 S=normalize(-vC);vec3 V=normalize(cameraPosition-W);float f=pow(max(dot(-N,V),0.),1.3);float d=dot(N,S);float lit=smoothstep(-.35,.5,d);vec3 col=mix(uC*vec3(1.,.45,.25),uC,smoothstep(-.1,.45,d));gl_FragColor=vec4(col*f*lit*uK,1.);}`});
+// Saturn ring: banded density, and the planet casts its shadow onto the ring (ray-sphere test toward the Sun).
+const ringMat=p=>new THREE.ShaderMaterial({transparent:true,side:THREE.DoubleSide,depthWrite:false,uniforms:{uC:{value:p.mesh.position},uR:{value:p.radius},uI:{value:p.radius*1.45},uO:{value:p.radius*2.35}},
+vertexShader:`varying vec3 W;varying vec2 P;void main(){P=position.xy;vec4 w=modelMatrix*vec4(position,1.);W=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}`,
+fragmentShader:`uniform vec3 uC;uniform float uR,uI,uO;varying vec3 W;varying vec2 P;void main(){float t=(length(P)-uI)/(uO-uI);float b=.55+.25*sin(t*60.)+.2*sin(t*23.+1.);float a=smoothstep(0.,.04,t)*(1.-smoothstep(.96,1.,t))*((t>.45&&t<.52)?.12:1.)*b;vec3 L=normalize(-W);vec3 oc=W-uC;float bb=dot(oc,L);float d=bb*bb-(dot(oc,oc)-uR*uR);float sh=(d>0.&&bb<0.)?.18:1.;gl_FragColor=vec4(vec3(.88,.8,.62)*b*sh,a*.85);}`});
+// Ring shadow on the planet body: injected into the standard material, traces a ray to the Sun and tests the ring plane.
+const ringShadow=(m,p)=>{const u={uC:{value:p.mesh.position},uN:{value:new THREE.Vector3(-Math.sin(.47),Math.cos(.47),0)},uI:{value:p.radius*1.45},uO:{value:p.radius*2.35}};
+m.onBeforeCompile=s=>{Object.assign(s.uniforms,u);s.vertexShader='varying vec3 vWP;\n'+s.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvWP=(modelMatrix*vec4(position,1.)).xyz;');
+s.fragmentShader='uniform vec3 uC;uniform vec3 uN;uniform float uI,uO;varying vec3 vWP;\n'+s.fragmentShader.replace('#include <dithering_fragment>','vec3 L=normalize(-vWP);float dn=dot(L,uN);if(abs(dn)>.001){float t=dot(uC-vWP,uN)/dn;if(t>0.){float r=length(vWP+L*t-uC);if(r>uI&&r<uO)gl_FragColor.rgb*=.3;}}\n#include <dithering_fragment>')}};
 const planets=[
  {name:'Mercury',color:0x9a9a94,radius:.105,period:87.97,desc:'A small, cratered world racing closest to the Sun. Its surface swings between extreme heat and cold.',type:'Terrestrial / rocky'},
  {name:'Venus',color:0xd9c7a3,radius:.165,period:224.7,desc:'A world wrapped in thick clouds. Its runaway greenhouse atmosphere makes it hotter than Mercury.',type:'Terrestrial / rocky'},
@@ -90,8 +104,10 @@ const planets=[
  {name:'Neptune',color:0x4a6fd6,radius:.29,period:60190,desc:'The farthest planet: dark, cold and wracked by supersonic winds, over four billion kilometres away.',type:'Ice giant'}];
 const tmp=new THREE.Vector3();
 planets.forEach((p,i)=>{
- p.mesh=new THREE.Mesh(new THREE.SphereGeometry(p.radius,48,32),new THREE.MeshStandardMaterial({color:p.color,roughness:.85,metalness:0}));
- if(p.ring){const rg=new THREE.Mesh(new THREE.RingGeometry(p.radius*1.45,p.radius*2.35,96),new THREE.MeshBasicMaterial({color:0xd9c7a3,transparent:true,opacity:.6,side:THREE.DoubleSide}));rg.rotation.x=Math.PI/2;p.mesh.add(rg);p.mesh.rotation.z=.47}
+ p.mesh=new THREE.Group();const mat=new THREE.MeshStandardMaterial({color:p.color,roughness:.85,metalness:0});
+ p.body=new THREE.Mesh(new THREE.SphereGeometry(p.radius,48,32),mat);p.mesh.add(p.body);
+ if(p.ring){ringShadow(mat,p);const rg=new THREE.Mesh(new THREE.RingGeometry(p.radius*1.45,p.radius*2.35,128),ringMat(p));rg.rotation.x=Math.PI/2;const tilt=new THREE.Group();tilt.rotation.z=.47;tilt.add(rg);p.mesh.add(tilt)}
+ const A=ATM[p.name];if(A){const am=new THREE.Mesh(new THREE.SphereGeometry(p.radius*A[1],48,32),atmMat(A[0],A[2]));p.mesh.add(am);atmos.push(am)}
  scene.add(p.mesh);
  p.line=new THREE.LineLoop(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xd9c7a3,transparent:true,opacity:.22}));scene.add(p.line);
  const b=document.createElement('button');b.className='planet-tab';b.innerHTML=`<span class="num">0${i+1}</span>${p.name}`;b.onclick=()=>select(i);$('#planetNav').appendChild(b);p.tab=b});
@@ -145,12 +161,77 @@ cv.addEventListener('wheel',e=>{e.preventDefault();if(mode!=='surface')zoom(Math
 $('#enter').onclick=()=>{const i=$('#intro');i.classList.add('is-leaving');$('#interface').inert=false;$('#interface').classList.add('live');setTimeout(()=>{i.style.display='none'},1300)};
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 
+// Volumetric-style corona: camera-facing shader with turbulent streamers, glare and falloff in solar radii.
+const cor=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uT:sunU.uTime},
+vertexShader:`varying vec2 v;void main(){v=position.xy*2.;gl_Position=projectionMatrix*(modelViewMatrix*vec4(0.,0.,0.,1.)+vec4(position.xy*7.,0.,0.));}`,
+fragmentShader:`uniform float uT;varying vec2 v;void main(){float rr=length(v)*6.25;if(rr<.98)discard;float an=atan(v.y,v.x);float s=.5+.5*sin(an*13.+uT*.3+sin(an*5.-uT*.2)*2.)*sin(an*7.-uT*.25+cos(an*3.+uT*.15)*1.7);float I=exp(-(rr-1.)*2.4)*.9+exp(-(rr-1.)*.6)*.22*(.4+s)+exp(-(rr-1.)*.12)*.03;I*=1.-smoothstep(4.,6.2,rr);gl_FragColor=vec4(vec3(1.,.74,.4)*I,1.);}`}));
+cor.frustumCulled=false;cor.renderOrder=1;scene.add(cor);
+// Dust: positions solved on the GPU each frame from Kepler's equation (mean motion ~ a^-1.5), so it follows the chosen date.
+const J2K=Date.UTC(2000,0,1,12),dustU={uD:{value:0},uPx:{value:1}},dusts=[];
+function makeDust(n,a0,a1,eM,iM,size,col,op){const aE=new Float32Array(n*4),aO=new Float32Array(n*3);
+ for(let i=0;i<n;i++){aE.set([a0+(a1-a0)*Math.random(),Math.random()*eM,Math.random()*6.2832,(Math.random()-.5)*2*iM*(.3+Math.random())],i*4);aO.set([Math.random()*6.2832,Math.random()*6.2832,.5+Math.random()],i*3)}
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));g.setAttribute('aE',new THREE.BufferAttribute(aE,4));g.setAttribute('aO',new THREE.BufferAttribute(aO,3));
+ const m=new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{...dustU,uS:{value:size},uCol:{value:new THREE.Color(col)},uO:{value:op}},
+ vertexShader:`attribute vec4 aE;attribute vec3 aO;uniform float uD,uPx,uS;varying float vA;varying float vR;void main(){float a=aE.x,e=aE.y;float M=mod(aE.z+.017202*uD/(a*sqrt(a)),6.2831853);float E=M;for(int i=0;i<4;i++)E-=(E-e*sin(E)-M)/(1.-e*cos(E));float x=a*(cos(E)-e),y=a*sqrt(1.-e*e)*sin(E);float r=length(vec2(x,y));float u=atan(y,x)+aO.y;float ci=cos(aE.w),si=sin(aE.w),cO=cos(aO.x),sO=sin(aO.x);vec3 p=r*vec3(cO*cos(u)-sO*sin(u)*ci,sO*cos(u)+cO*sin(u)*ci,sin(u)*si);vec3 q=vec3(p.x,p.z,-p.y)*(3.4*log(1.+2.2*r)/r);vec4 mv=viewMatrix*vec4(q,1.);gl_Position=projectionMatrix*mv;gl_PointSize=clamp(uS*aO.z*uPx/-mv.z,1.,5.*uPx);vA=aO.z;vR=r;}`,
+ fragmentShader:`uniform vec3 uCol;uniform float uO;varying float vA;varying float vR;void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;float f=smoothstep(.5,0.,d);vec3 c=mix(vec3(1.,.8,.55),uCol,smoothstep(.4,2.5,vR));gl_FragColor=vec4(c*f*uO*(.5+vA*.6),f);}`});
+ const pts=new THREE.Points(g,m);pts.frustumCulled=false;scene.add(pts);dusts.push({n,geo:g,mat:m})}
+makeDust(16000,2.1,3.3,.18,.22,10,0xb8a58a,.9);   // main asteroid belt
+makeDust(6000,.3,1.7,.06,.08,6,0xd9c7a3,.35);     // inner zodiacal dust
+makeDust(8000,34,48,.12,.3,9,0x9db4c0,.5);        // Kuiper-style outer belt
+
+// ===== Full-screen ray tracer: analytic ray-sphere hits, shadow rays (eclipses, ring shadows), ray-marched atmospheres =====
+const hx=h=>[(h>>16&255)/255,(h>>8&255)/255,(h&255)/255];
+const AK=[0,1.5,2.2,.6,.7,.7,1.2,1.3],AC=[[0,0,0],[.9,.8,.5],[.3,.55,1],[.8,.5,.35],[.85,.7,.5],[.9,.8,.6],[.5,.9,.9],[.35,.5,1]];
+const vp=new THREE.Matrix4();
+const rt=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.ShaderMaterial({blending:THREE.CustomBlending,blendEquation:THREE.AddEquation,blendSrc:THREE.OneFactor,blendDst:THREE.OneMinusSrcAlphaFactor,
+uniforms:{uPos:{value:planets.map(p=>p.mesh.position)},uRad:{value:planets.map(p=>p.radius)},uCol:{value:planets.map(p=>new THREE.Vector3(...hx(p.color)))},uSp:{value:planets.map(()=>0)},uAK:{value:AK},uAC:{value:AC.map(a=>new THREE.Vector3(...a))},uRN:{value:new THREE.Vector3(-Math.sin(.47),Math.cos(.47),0)},uIP:{value:camera.projectionMatrixInverse},uCW:{value:camera.matrixWorld},uVP:{value:vp},uT:sunU.uTime,uQ:{value:12}},
+vertexShader:`varying vec2 vN;void main(){vN=position.xy;gl_Position=vec4(position.xy,0.,1.);}`,
+fragmentShader:`uniform vec3 uPos[8];uniform float uRad[8];uniform vec3 uCol[8];uniform float uSp[8];uniform float uAK[8];uniform vec3 uAC[8];uniform vec3 uRN;uniform mat4 uIP,uCW,uVP;uniform float uT;uniform int uQ;varying vec2 vN;
+vec2 sph(vec3 ro,vec3 rd,vec3 c,float r){vec3 o=ro-c;float b=dot(o,rd),d=b*b-(dot(o,o)-r*r);if(d<0.)return vec2(-1.);d=sqrt(d);return vec2(-b-d,-b+d);}
+float h3(vec3 p){p=fract(p*.3183099+.1);p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float no(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x),mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x),f.y),mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x),mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x),f.x),f.y),f.z);}
+float fb(vec3 p){float a=.5,s=0.;for(int i=0;i<5;i++){s+=a*no(p);p=p*2.03+1.7;a*=.5;}return s;}
+float shadowAt(vec3 p,int self,bool ringS){vec3 L=normalize(-p);float s=1.;for(int i=0;i<8;i++){if(i==self)continue;vec3 o=p-uPos[i];float b=dot(o,L);if(b<0.&&-b<length(p)){float d=sqrt(max(dot(o,o)-b*b,0.));s*=smoothstep(uRad[i]*.9,uRad[i]*1.04,d);}}
+ if(ringS){vec3 c=uPos[5];float dn=dot(L,uRN);if(abs(dn)>.001){float t=dot(c-p,uRN)/dn;if(t>0.){float u=(length(p+L*t-c)-uRad[5]*1.45)/(uRad[5]*.9);if(u>0.&&u<1.)s*=.35;}}}return s;}
+vec3 shade(int id,vec3 p,vec3 rd,float sh){vec3 n=normalize(p-uPos[id]);float sp=uSp[id],cs=cos(sp),sn=sin(sp);vec3 q=vec3(cs*n.x+sn*n.z,n.y,-sn*n.x+cs*n.z);vec3 L=normalize(-p);vec3 base=uCol[id];float oc=0.,lat=abs(q.y);vec3 night=vec3(0.);
+ if(id==0){base*=.5+1.0*fb(q*10.);}
+ else if(id==1){float f=fb(vec3(q.x*3.+uT*.02,q.y*9.,q.z*3.));base=mix(vec3(.85,.7,.45),vec3(.97,.9,.72),f);}
+ else if(id==2){float h=fb(q*3.2);float land=smoothstep(.5,.54,h);vec3 oce=mix(vec3(.02,.09,.3),vec3(.05,.25,.5),fb(q*8.));vec3 ld=mix(vec3(.18,.4,.12),vec3(.5,.4,.25),fb(q*14.));float ice=smoothstep(.82,.9,lat);base=mix(mix(oce,ld,land),vec3(.9),ice);float cl=smoothstep(.5,.75,fb(q*4.5+vec3(uT*.01,0.,0.)));base=mix(base,vec3(1.),cl*.85);oc=(1.-land)*(1.-cl)*(1.-ice);night=vec3(1.,.75,.4)*step(.86,h3(floor(q*160.)))*land*(1.-cl)*1.3;}
+ else if(id==3){base=mix(vec3(.55,.22,.1),vec3(.8,.45,.25),fb(q*5.));base=mix(base,vec3(.95),smoothstep(.9,.95,lat));}
+ else if(id<6){float b=.5+.5*sin(q.y*(id==4?16.:12.)+fb(q*vec3(1.5,10.,1.5))*3.);base=mix(base*.55,base*1.25+.05,b);}
+ else base*=.8+.35*sin(q.y*8.+fb(q*3.)*2.);
+ float dl=dot(n,L);float d=max(dl,0.)*sh*1.6;vec3 col=base*(d+.02);
+ if(oc>0.)col+=pow(max(dot(n,normalize(L-rd)),0.),90.)*oc*sh*1.3;
+ return col+night*smoothstep(.1,-.15,dl);}
+vec4 ringAt(vec3 ro,vec3 rd,out float t){vec3 c=uPos[5];t=-1.;float dn=dot(rd,uRN);if(abs(dn)<1e-4)return vec4(0.);t=dot(c-ro,uRN)/dn;if(t<0.)return vec4(0.);vec3 p=ro+rd*t;float u=(length(p-c)-uRad[5]*1.45)/(uRad[5]*.9);if(u<0.||u>1.)return vec4(0.);
+ float b=.55+.25*sin(u*60.)+.2*sin(u*23.+1.);float a=smoothstep(0.,.04,u)*(1.-smoothstep(.96,1.,u))*((u>.45&&u<.52)?.12:1.)*b*.9;return vec4(vec3(.88,.8,.62)*b*(.12+1.4*shadowAt(p,-1,false)),a);}
+void atmo(int i,vec3 ro,vec3 rd,float tmax,inout vec3 col,inout float al){float k=uAK[i];if(k<=0.)return;vec3 c=uPos[i];float r=uRad[i],Ra=r*1.12,H=Ra-r;vec2 h=sph(ro,rd,c,Ra);if(h.y<0.)return;float t0=max(h.x,0.),t1=min(h.y,tmax);vec2 hp=sph(ro,rd,c,r);if(hp.x>0.)t1=min(t1,hp.x);if(t1<=t0)return;
+ float dt=(t1-t0)/float(uQ);vec3 beta=uAC[i]*k;vec3 sc=vec3(0.);float od=0.;
+ for(int s=0;s<16;s++){if(s>=uQ)break;vec3 p=ro+rd*(t0+(float(s)+.5)*dt);float den=exp(-max((length(p-c)-r)/H,0.)*4.5);od+=den*dt/H;vec3 L=normalize(-p);vec2 ls=sph(p,L,c,Ra);float lo=0.;
+  for(int j=0;j<3;j++){vec3 q=p+L*ls.y*(float(j)+.5)/3.;lo+=exp(-max((length(q-c)-r)/H,0.)*4.5)*ls.y/3./H;}
+  float vis=(sph(p,L,c,r).x>0.)?0.:1.;sc+=den*dt/H*exp(-beta*(od+lo))*vis*uAC[i];}
+ vec3 Lc=normalize(-c);float ph=.6+.4*pow(dot(rd,Lc),2.);vec3 T=exp(-beta*od);col=col*T+sc*k*ph*.9;al=al+(1.-al)*(1.-(T.r+T.g+T.b)/3.);}
+void main(){vec4 v=uIP*vec4(vN,1.,1.);vec3 rd=normalize((uCW*vec4(v.xyz/v.w,0.)).xyz);vec3 ro=cameraPosition;
+ float tb=1e9;int id=-1;for(int i=0;i<8;i++){vec2 h=sph(ro,rd,uPos[i],uRad[i]);if(h.x>0.&&h.x<tb){tb=h.x;id=i;}}
+ vec2 hs=sph(ro,rd,vec3(0.),.56);float ts=hs.x>0.?hs.x:1e9;float tO=min(tb,ts);vec3 col=vec3(0.);float al=0.,dep=1e9;
+ if(ts<tb){vec3 n=normalize(ro+rd*ts);float mu=max(dot(n,-rd),0.);col=mix(vec3(.62,.38,.12),vec3(.98,.8,.4),fb(n*6.+vec3(0.,uT*.05,0.)))*(.5+.8*mu)*1.5;al=1.;dep=ts;}
+ else if(id>=0){vec3 p=ro+rd*tb;col=shade(id,p,rd,shadowAt(p,id,true));al=1.;dep=tb;}
+ for(int i=0;i<8;i++)atmo(i,ro,rd,tO,col,al);
+ float tr;vec4 rg=ringAt(ro,rd,tr);if(rg.a>0.&&tr<tO){col=col*(1.-rg.a)+rg.rgb*rg.a;al=al+(1.-al)*rg.a;if(dep>1e8)dep=tr;}
+ if(al<.002&&dot(col,vec3(1.))<.002)discard;
+ float dd=1.;if(dep<1e8){vec4 cl=uVP*vec4(ro+rd*dep,1.);dd=cl.z/cl.w*.5+.5;}
+ gl_FragDepth=dd;gl_FragColor=vec4(1.-exp(-col*1.25),clamp(al,0.,1.));}`}));
+rt.frustumCulled=false;rt.renderOrder=-10;scene.add(rt);
+sun.visible=false;planets.forEach(p=>p.mesh.traverse(o=>{if(o.isMesh)o.visible=false})); // rasterised bodies stay only as invisible pick targets
+let hi=!mobile;const qb=$('#quality');
+function applyQ(){qb.textContent=hi?'Quality: High':'Quality: Light';renderer.setPixelRatio(hi?Math.min(devicePixelRatio,2):1);dustU.uPx.value=renderer.getPixelRatio();dusts.forEach(d=>d.geo.setDrawRange(0,Math.floor(d.n*(hi?1:.3))));atmos.forEach(m=>m.visible=hi);cor.visible=true;rt.material.uniforms.uQ.value=hi?14:6}
+qb.onclick=()=>{hi=!hi;applyQ()};
 const clock=new THREE.Clock();let frame=0;const P=new THREE.Vector3();
-syncInputs(true);buildOrbits();
+syncInputs(true);buildOrbits();applyQ();
 renderer.setAnimationLoop(()=>{const dt=Math.min(clock.getDelta(),.1);frame++;
  if(playing)sim=new Date(sim.getTime()+dt*SPEED*864e5);
- sunU.uTime.value+=dt;stars.rotation.y+=dt*.003;sun.rotation.y+=dt*.02;
- const dists=[];planets.forEach((p,i)=>{dists[i]=pos(p.name,sim,p.mesh.position);p.mesh.rotation.y+=dt*.4});
+ sunU.uTime.value+=dt;dustU.uD.value=(sim.getTime()-J2K)/864e5;stars.rotation.y+=dt*.003;sun.rotation.y+=dt*.02;
+ const dists=[];planets.forEach((p,i)=>{dists[i]=pos(p.name,sim,p.mesh.position);p.body.rotation.y+=dt*.4});
  if(frame%20===1){const d=new Date(sim);$('#timeStatus').textContent=`Showing ${pad(d.getDate())}/${pad(d.getMonth()+1)}/${pad(d.getFullYear(),4)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;if(playing)syncInputs(false);
   if(sel>=0)$('#readoutDistance').textContent=`${dists[sel].toFixed(3)} AU FROM SUN · ${(dists[sel]*8.317).toFixed(1)} LIGHT-MIN`}
  const k=1-Math.exp(-dt*5);
@@ -158,7 +239,7 @@ renderer.setAnimationLoop(()=>{const dt=Math.min(clock.getDelta(),.1);frame++;
  else{tgt.copy(sel>=0?planets[sel].mesh.position:P.set(0,0,0));curT.lerp(tgt,sel>=0&&mode==='follow'?Math.min(1,k*2):k);curD+=(dist-curD)*k;
   const a=az+mAz,e=Math.max(-1.5,Math.min(1.5,el+mEl)),c=Math.cos(e);
   camera.position.set(curT.x+curD*c*Math.sin(a),curT.y+curD*Math.sin(e),curT.z+curD*c*Math.cos(a));camera.up.set(0,1,0);camera.lookAt(curT)}
- renderer.render(scene,camera)});
+ camera.updateMatrixWorld();vp.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);planets.forEach((p,i)=>rt.material.uniforms.uSp.value[i]=p.body.rotation.y*(i>3?2.5:1));renderer.render(scene,camera)});
 </script>
 </body>
 </html>
