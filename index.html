@@ -118,18 +118,31 @@ function updateTabs(){[...nav.children].forEach((b,i)=>b.classList.toggle('activ
 function updateViewButtons(){ $('#followView').classList.toggle('active',viewMode==='follow'); $('#surfaceView').classList.toggle('active',viewMode==='surface'); $('#overviewView').classList.toggle('active',viewMode==='system'); }
 function pad2(value){return String(value).padStart(2,'0')}
 function setDateInputs(date){$('#ephemerisDate').value=`${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;$('#ephemerisTime').value=`${pad2(date.getHours())}:${pad2(date.getMinutes())}`}
+function vectorToScene(vector,cosE,sinE){
+ const eclipticY=vector.y*cosE+vector.z*sinE,eclipticZ=-vector.y*sinE+vector.z*cosE;
+ return new THREE.Vector3(vector.x*AU_TO_SCENE,eclipticZ*AU_TO_SCENE,-eclipticY*AU_TO_SCENE);
+}
 function applyEphemeris(date){
  const Astronomy=window.Astronomy;
  if(!Astronomy||typeof Astronomy.HelioVector!=='function')throw new Error('The planetary ephemeris library did not load. Check your internet connection and reload.');
  const obliquity=THREE.MathUtils.degToRad(23.439291111),cosE=Math.cos(obliquity),sinE=Math.sin(obliquity);
  planets.forEach((planet,index)=>{
-   const vector=Astronomy.HelioVector(Astronomy.Body[planet.name],date);
+   const body=Astronomy.Body[planet.name],vector=Astronomy.HelioVector(body,date);
    if(!vector||![vector.x,vector.y,vector.z].every(Number.isFinite))throw new Error(`Could not calculate ${planet.name} for this date.`);
    // Astronomy Engine returns heliocentric J2000 equatorial vectors in AU.
    // Rotate to the J2000 ecliptic plane, then map its north axis to Three.js Y.
-   const x=vector.x, eclipticY=vector.y*cosE+vector.z*sinE, eclipticZ=-vector.y*sinE+vector.z*cosE;
-   objects[index].pivot.position.set(x*AU_TO_SCENE,eclipticZ*AU_TO_SCENE,-eclipticY*AU_TO_SCENE);
+   objects[index].pivot.position.copy(vectorToScene(vector,cosE,sinE));
    planet.distance=`${Math.hypot(vector.x,vector.y,vector.z).toFixed(3)} AU`;
+   // Sample one sidereal orbit from the selected moment to redraw the orbit plane and eccentric path.
+   const orbitPoints=[],samples=96;
+   for(let step=0;step<samples;step++){
+     const sampleDate=new Date(date.getTime()+planet.period*(step/samples)*86400000);
+     const sampleVector=Astronomy.HelioVector(body,sampleDate);
+     orbitPoints.push(vectorToScene(sampleVector,cosE,sinE));
+   }
+   const oldGeometry=objects[index].orbit.geometry;
+   objects[index].orbit.geometry=new THREE.BufferGeometry().setFromPoints(orbitPoints);
+   oldGeometry.dispose();
  });
  currentEphemerisDate=date;
  const local=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(date);
