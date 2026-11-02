@@ -67,7 +67,7 @@ const scene=new THREE.Scene();scene.background=new THREE.Color('#0B0F0D');scene.
 const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,1800);
 const portraitScale=isMobile?.58:1;
 const system=new THREE.Group();system.scale.setScalar(portraitScale);scene.add(system);
-if(isMobile){camera.position.set(0,31,0.08);camera.up.set(0,0,-1)}else{camera.position.set(0,18,28)}camera.lookAt(0,0,0);
+if(isMobile){camera.position.set(0,42,0.08);camera.up.set(0,0,-1)}else{camera.position.set(0,24,38)}camera.lookAt(0,0,0);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.18;document.body.appendChild(renderer.domElement);
 scene.add(new THREE.AmbientLight(0x7f8298,.24));const sunlight=new THREE.PointLight(0xb08d57,150,170,1.35);system.add(sunlight);
 
